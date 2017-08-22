@@ -11,100 +11,40 @@ class SearchTimeout(Exception):
     pass
 
 
-def euclidean_distance(a, b):
-    return math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2)
-
-
 def manhattan_distance(a, b):
     return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
 
-def bounding_box(ns):
-    if len(ns) == 0:
-        return ((-1, -1), (-1, -1))
-    (rows, columns) = zip(*ns)
+def bounding_box(spaces):
+    (rows, columns) = zip(*spaces)
     return ((min(rows), min(columns)), (max(rows), max(columns)))
 
 
-def box_area(a):
-    ((min_row, min_column), (max_row, max_column)) = a
-    return (max_row - min_row + 1.) * (max_column - min_column + 1.)
+def box_spaces(box):
+    ((min_row, min_column), (max_row, max_column)) = box
+    return [(row, column) for row in range(min_row, max_row + 1) for column in range(min_column, max_column + 1)]
 
 
-def intersection_box(a, b):
-    ((min_row_a, min_column_a), (max_row_a, max_column_a)) = a
-    ((min_row_b, min_column_b), (max_row_b, max_column_b)) = b
-    return ((max(min_row_a, min_row_b), max(min_column_a, min_column_b)), (min(max_row_a, max_row_b), min(max_column_a, max_column_b)))
+def open_moves_score(game, player, multiplier = 1.0):
+    return multiplier * len(game.get_legal_moves(player))
 
 
-def center_score(game, player):
-    opp = game.get_opponent(player)
+def bounding_box_blank_spaces_score(game, player, multiplier = 1.0):
+    location = game.get_player_location(player)
+    moves = game.get_legal_moves(player)
 
+    spaces = box_spaces(bounding_box(moves + [location]))
+
+    return multiplier * len(set(game.get_blank_spaces()) & set(spaces))
+
+
+def blank_spaces_proximity_score(game, player, multiplier = 1.0):
     own_location = game.get_player_location(player)
-    opp_location = game.get_player_location(opp)
+    opp_location = game.get_player_location(game.get_opponent(player))
 
-    center_location = (game.height / 2., game.width / 2.)
+    blank_spaces = [space for space in game.get_blank_spaces() if manhattan_distance(space, own_location) < manhattan_distance(space, opp_location)]
 
-    own_distance = manhattan_distance(own_location, center_location)
-    opp_distance = manhattan_distance(opp_location, center_location)
-
-    return float(own_distance - opp_distance)
-
-
-def opponent_score(game, player):
-    opp = game.get_opponent(player)
-
-    own_location = game.get_player_location(player)
-    opp_location = game.get_player_location(opp)
-
-    center_location = (game.height / 2., game.width / 2.)
-
-    distance = manhattan_distance(own_location, opp_location)
-
-    return float(distance)
-
-
-def intersection_score(game, player):
-    opp = game.get_opponent(player)
-
-    own_moves = game.get_legal_moves(player)
-    opp_moves = game.get_legal_moves(opp)
-
-    moves_intersection = set(own_moves) & set(opp_moves)
-
-    return float(len(moves_intersection))
-
-
-def spread_score(game, player):
-    own_moves = game.get_legal_moves(player)
-
-    own_box = bounding_box(own_moves)
-
-    return box_area(own_box)
-
-
-def spread_difference_score(game, player):
-    opp = game.get_opponent(player)
-
-    own_moves = game.get_legal_moves(player)
-    opp_moves = game.get_legal_moves(opp)
-
-    own_box = bounding_box(own_moves)
-    opp_box = bounding_box(opp_moves)
-
-    return box_area(own_box) - box_area(opp_box)
-
-
-def spread_intersection_score(game, player):
-    opp = game.get_opponent(player)
-
-    own_moves = game.get_legal_moves(player)
-    opp_moves = game.get_legal_moves(opp)
-
-    own_box = bounding_box(own_moves)
-    opp_box = bounding_box(opp_moves)
-
-    return box_area(intersection_box(own_box, opp_box))
+    return multiplier * len(blank_spaces)
 
 
 def custom_score(game, player):
@@ -137,16 +77,15 @@ def custom_score(game, player):
     if game.is_winner(player):
         return float("inf")
 
-    p = len(game.get_blank_spaces()) / (game.height * game.width)
+    p = game.move_count / (game.height * game.width)
+    opp = game.get_opponent(player)
 
-    if p <= 0.2:
-        return intersection_score(game, player)
-    elif p <= 0.4:
-        return opponent_score(game, player)
-    elif p <= 0.7:
-        return spread_difference_score(game, player)
-    else:
-        return spread_score(game, player)
+    if p <= 0.33:
+        return open_moves_score(game, player) - open_moves_score(game, opp, 1.62)
+    elif p <= 0.66:
+        return bounding_box_blank_spaces_score(game, player, 1.62) - bounding_box_blank_spaces_score(game, opp)
+    elif p <= 1.0:
+        return blank_spaces_proximity_score(game, player)
 
 
 def custom_score_2(game, player):
@@ -156,7 +95,9 @@ def custom_score_2(game, player):
     if game.is_winner(player):
         return float("inf")
 
-    return center_score(game, player)
+    opp = game.get_opponent(player)
+
+    return open_moves_score(game, player) - open_moves_score(game, opp, 1.62)
 
 
 def custom_score_3(game, player):
@@ -166,7 +107,9 @@ def custom_score_3(game, player):
     if game.is_winner(player):
         return float("inf")
 
-    return opponent_score(game, player)
+    opp = game.get_opponent(player)
+
+    return bounding_box_blank_spaces_score(game, player, 1.62) - bounding_box_blank_spaces_score(game, opp)
 
 
 def custom_score_4(game, player):
@@ -176,37 +119,9 @@ def custom_score_4(game, player):
     if game.is_winner(player):
         return float("inf")
 
-    return intersection_score(game, player)
+    opp = game.get_opponent(player)
 
-
-def custom_score_5(game, player):
-    if game.is_loser(player):
-        return float("-inf")
-
-    if game.is_winner(player):
-        return float("inf")
-
-    return spread_score(game, player)
-
-
-def custom_score_6(game, player):
-    if game.is_loser(player):
-        return float("-inf")
-
-    if game.is_winner(player):
-        return float("inf")
-
-    return spread_difference_score(game, player)
-
-
-def custom_score_7(game, player):
-    if game.is_loser(player):
-        return float("-inf")
-
-    if game.is_winner(player):
-        return float("inf")
-
-    return spread_intersection_score(game, player)
+    return blank_spaces_proximity_score(game, player) - blank_spaces_proximity_score(game, opp)
 
 
 class IsolationPlayer:
@@ -333,14 +248,18 @@ class MinimaxPlayer(IsolationPlayer):
             raise SearchTimeout()
 
         legal_moves = game.get_legal_moves()
+        # Return the NONE move if there are no legal moves to make
         if not legal_moves:
             return self.NONE
 
+        # Return a random move if the depth limit has been reached
         if not depth:
             return random.choice(legal_moves)
 
+        # Initialize a lambda function which return minimax score for some legal move
         forecast_lambda = lambda m: self.minimax_score(game.forecast_move(m), depth - 1)
 
+        # Apply the initialized lamda function to all the legal moves and choose max/min respectively
         if self is game.active_player:
             return max(legal_moves, key = forecast_lambda)
         if self is game.inactive_player:
@@ -350,15 +269,19 @@ class MinimaxPlayer(IsolationPlayer):
         if self.time_left() < self.TIMER_THRESHOLD:
             raise SearchTimeout()
 
+        # Return the SCORE if the depth limit has been reached
         if not depth:
             return self.score(game, self)
 
         legal_moves = game.get_legal_moves()
+        # Return the UTILITY score if there are no legal moves to make
         if not legal_moves:
             return game.utility(self)
 
+        # Initialize an array with minimax scores for all the legal moves
         forecast_scores = [self.minimax_score(game.forecast_move(m), depth - 1) for m in legal_moves]
 
+        # Return max/min of the minimax scores respectively
         if self is game.active_player:
             return max(forecast_scores)
         if self is game.inactive_player:
@@ -403,11 +326,15 @@ class AlphaBetaPlayer(IsolationPlayer):
         """
         self.time_left = time_left
 
+        # Initialize the best move
         best_move = self.NONE
         try:
+            # Initialize the search depth
             search_depth = self.search_depth
             while True:
+                # Reinitialize the best move
                 best_move = self.alphabeta(game, search_depth)
+                # Increment the search depth
                 search_depth = search_depth + 1
 
         except SearchTimeout:
@@ -464,30 +391,38 @@ class AlphaBetaPlayer(IsolationPlayer):
             raise SearchTimeout()
 
         legal_moves = game.get_legal_moves()
+        # Return the NONE move if there are no legal moves to make
         if not legal_moves:
             return self.NONE
 
+        # Return a random move if the depth limit has been reached
         if not depth:
             return random.choice(legal_moves)
 
+        # Initialize the score to -inf/+inf respectively
         if self is game.active_player:
             score = float("-inf")
         if self is game.inactive_player:
             score = float("inf")
 
+        # Initialize the move to a random move
         move = random.choice(legal_moves)
 
         for m in legal_moves:
+            # Initialize s to the alphabeta score for the next legal move
             s = self.alphabeta_score(game.forecast_move(m), depth - 1, alpha, beta)
+            # Update score, move and alpha/beta if s is better than the score
             if self is game.active_player and s > score:
                 score = s
                 move = m
+                # Return the move if the score cannot be improved anymore
                 if score >= beta:
                     return move
                 alpha = max(alpha, score)
             if self is game.inactive_player and s < score:
                 score = s
                 move = m
+                # Return the move if the score cannot be improved anymore
                 if score <= alpha:
                     return move
                 beta = min(beta, score)
@@ -498,27 +433,34 @@ class AlphaBetaPlayer(IsolationPlayer):
         if self.time_left() < self.TIMER_THRESHOLD:
             raise SearchTimeout()
 
+        # Return the SCORE if the depth limit has been reached
         if not depth:
             return self.score(game, self)
 
         legal_moves = game.get_legal_moves()
+        # Return the UTILITY score if there are no legal moves to make
         if not legal_moves:
             return game.utility(self)
 
+        # Initialize the score to -inf/+inf respectively
         if self is game.active_player:
             score = float("-inf")
         if self is game.inactive_player:
             score = float("inf")
 
         for m in legal_moves:
+            # Initialize s to the alphabeta score for the next legal move
             s = self.alphabeta_score(game.forecast_move(m), depth - 1, alpha, beta)
+            # Update score and alpha/beta if s is better than the score
             if self is game.active_player and s > score:
                 score = s
+                # Return the score if it cannot be improved anymore
                 if score >= beta:
                     return score
                 alpha = max(alpha, score)
             if self is game.inactive_player and s < score:
                 score = s
+                # Return score if it cannot be improved anymore
                 if score <= alpha:
                     return score
                 beta = min(beta, score)
